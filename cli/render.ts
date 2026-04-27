@@ -1,9 +1,11 @@
 import { chromium, Browser, Page } from 'playwright';
 import { SCRAPE_FN } from './scrape-injected';
+import type { TokenSet } from '../src/main/ir/types';
 
 export type ScrapeResult = {
   screens: any[];
   viewport: { w: number; h: number };
+  tokens?: TokenSet | null;
 };
 
 export type RenderOptions = {

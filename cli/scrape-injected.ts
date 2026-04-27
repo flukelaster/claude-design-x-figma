@@ -531,6 +531,109 @@ export const SCRAPE_FN = `
     };
   }
 
+  // ── CSS custom property extraction ─────────────────────────────────────
+  // Walks document.styleSheets and collects every "--*" declaration. Selectors
+  // are bucketed into modes so a single var can carry both light + dark
+  // values. Cross-origin sheets throw when reading cssRules — skipped.
+  function classifyMode(selectorText, mediaText) {
+    if (mediaText && /prefers-color-scheme\\s*:\\s*dark/i.test(mediaText)) return 'Dark';
+    if (mediaText && /prefers-color-scheme\\s*:\\s*light/i.test(mediaText)) return 'Light';
+    if (!selectorText) return null;
+    const s = selectorText.toLowerCase();
+    if (/(^|[^a-z0-9_-])\\.dark(\\b|[^a-z0-9_-])/.test(s)) return 'Dark';
+    if (/\\[data-theme[^\\]]*=[^\\]]*['"]?dark['"]?\\]/.test(s)) return 'Dark';
+    if (/(^|[^a-z0-9_-])\\.light(\\b|[^a-z0-9_-])/.test(s)) return 'Light';
+    if (/\\[data-theme[^\\]]*=[^\\]]*['"]?light['"]?\\]/.test(s)) return 'Light';
+    if (s === ':root' || s === 'html' || s === 'body' || s === '*') return 'Light';
+    return null;
+  }
+
+  function classifyType(value) {
+    const v = (value || '').trim();
+    if (!v) return 'STRING';
+    if (/^var\\(/.test(v)) return null;
+    if (/^#[0-9a-f]{3,8}$/i.test(v)) return 'COLOR';
+    if (/^(rgb|rgba|hsl|hsla|hwb|oklch|oklab|lab|lch|color)\\s*\\(/i.test(v)) return 'COLOR';
+    if (/^-?\\d*\\.?\\d+(px|rem|em|%)?$/i.test(v)) return 'FLOAT';
+    return 'STRING';
+  }
+
+  function collectStyleRules(rules, mediaText, out) {
+    if (!rules) return;
+    for (let i = 0; i < rules.length; i++) {
+      const r = rules[i];
+      if (!r) continue;
+      // CSSStyleRule has type 1
+      if (r.type === 1 && r.style) {
+        out.push({ selectorText: r.selectorText, style: r.style, mediaText: mediaText });
+      } else if (r.type === 4 && r.cssRules) {
+        // CSSMediaRule
+        const childMedia = (r.media && r.media.mediaText) ? r.media.mediaText : mediaText;
+        collectStyleRules(r.cssRules, childMedia, out);
+      } else if (r.cssRules) {
+        // CSSSupportsRule / CSSLayerBlockRule — recurse generic
+        collectStyleRules(r.cssRules, mediaText, out);
+      }
+    }
+  }
+
+  function extractTokens() {
+    const out = { modes: ['Light'], vars: [] };
+    const byName = new Map();
+
+    const collected = [];
+    for (const sheet of Array.from(document.styleSheets)) {
+      let rules;
+      try { rules = sheet.cssRules; } catch { continue; }
+      if (!rules) continue;
+      collectStyleRules(rules, undefined, collected);
+    }
+
+    for (const ctx of collected) {
+      const mode = classifyMode(ctx.selectorText, ctx.mediaText);
+      if (!mode) continue;
+      if (!out.modes.includes(mode)) out.modes.push(mode);
+      const style = ctx.style;
+      for (let i = 0; i < style.length; i++) {
+        const prop = style[i];
+        if (!prop || !prop.startsWith('--')) continue;
+        const value = style.getPropertyValue(prop).trim();
+        if (!value) continue;
+        let entry = byName.get(prop);
+        if (!entry) { entry = { name: prop, type: 'STRING', values: {} }; byName.set(prop, entry); }
+        entry.values[mode] = value;
+      }
+    }
+
+    // Default-mode resolved values from :root via getComputedStyle catch tokens
+    // declared inline or in cross-origin sheets — resolves the cascade for the
+    // currently-rendered theme regardless of source. Only fills 'Light' slots
+    // that are still missing.
+    try {
+      const rootCs = window.getComputedStyle(document.documentElement);
+      for (const entry of byName.values()) {
+        if (entry.values['Light']) continue;
+        const v = rootCs.getPropertyValue(entry.name).trim();
+        if (v) entry.values['Light'] = v;
+      }
+    } catch {}
+
+    // Type: take first literal value across modes that classifies.
+    for (const entry of byName.values()) {
+      let chosen = null;
+      for (const mode of out.modes) {
+        const v = entry.values[mode];
+        if (!v) continue;
+        const t = classifyType(v);
+        if (t) { chosen = t; break; }
+      }
+      entry.type = chosen || 'STRING';
+      out.vars.push(entry);
+    }
+
+    return out;
+  }
+
   // Detect "screens" — direct children of #root, or fallback to body roots
   const root = document.getElementById('root') || document.body;
   const screens = [];
@@ -538,6 +641,95 @@ export const SCRAPE_FN = `
     const ir = walk(child);
     if (ir) screens.push(ir);
   }
-  return { screens, viewport: { w: window.innerWidth, h: window.innerHeight } };
+
+  // ── JS token extraction ────────────────────────────────────────────────
+  // Claude-style prototypes spread tokens via inline JSX style props from a
+  // global object (e.g. window.SPROUT, window.TOKENS). The rendered DOM holds
+  // resolved hex/px values but no --* declarations, so the CSS extractor
+  // returns nothing. This routine walks named globals that look like token
+  // bundles and flattens their leaves into the same TokenSet shape.
+  function isPlainObj(v) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+    var proto = Object.getPrototypeOf(v);
+    return proto === Object.prototype || proto === null;
+  }
+
+  function leafType(v) {
+    if (typeof v === 'string') {
+      if (/^#[0-9a-f]{3,8}$/i.test(v)) return 'COLOR';
+      if (/^(rgb|rgba|hsl|hsla|hwb|oklch|oklab|lab|lch|color)\\s*\\(/i.test(v)) return 'COLOR';
+      if (v.length > 0 && v.length < 200) return 'STRING';
+      return null;
+    }
+    if (typeof v === 'number' && Number.isFinite(v)) return 'FLOAT';
+    return null;
+  }
+
+  function camelToKebab(s) {
+    // greenDeep → green-deep, fontDisplay → font-display. Preserves the
+    // semantic boundary so Figma's tree shows nested groups instead of one
+    // mashed-together leaf name.
+    return s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+  }
+
+  function flattenObj(rootName, obj, out, seen, depth) {
+    if (depth > 3) return;
+    if (seen.has(obj)) return;
+    seen.add(obj);
+    var keys = Object.keys(obj);
+    if (keys.length > 100) return;
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      var v = obj[k];
+      var keyKebab = camelToKebab(k.replace(/[^a-zA-Z0-9_-]/g, ''));
+      var path = rootName + '-' + keyKebab;
+      if (isPlainObj(v)) { flattenObj(path, v, out, seen, depth + 1); continue; }
+      var t = leafType(v);
+      if (!t) continue;
+      var raw = typeof v === 'number' ? (v + 'px') : String(v);
+      out.push({ name: '--' + path, type: t, values: { Light: raw } });
+    }
+  }
+
+  function extractJsTokens() {
+    var out = [];
+    var seen = new Set();
+    var keys;
+    try { keys = Object.keys(window); } catch { return out; }
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      var isUpper = /^[A-Z][A-Z0-9_]{2,}$/.test(k);
+      var isHinted = /tokens|theme|design|palette|colou?rs/i.test(k);
+      if (!isUpper && !isHinted) continue;
+      var v;
+      try { v = window[k]; } catch { continue; }
+      if (!isPlainObj(v)) continue;
+      flattenObj(k.toLowerCase(), v, out, seen, 0);
+    }
+    return out;
+  }
+
+  function mergeTokens(cssSet, jsVars) {
+    if (!jsVars.length) return cssSet;
+    var byName = new Set(cssSet.vars.map(function (v) { return v.name; }));
+    for (var i = 0; i < jsVars.length; i++) {
+      if (byName.has(jsVars[i].name)) continue;
+      cssSet.vars.push(jsVars[i]);
+      byName.add(jsVars[i].name);
+    }
+    return cssSet;
+  }
+
+  let tokens = null;
+  try {
+    var cssTokens = extractTokens();
+    var jsTokens;
+    try { jsTokens = extractJsTokens(); } catch { jsTokens = []; }
+    tokens = mergeTokens(cssTokens, jsTokens);
+  } catch (e) {
+    tokens = null;
+  }
+
+  return { screens, viewport: { w: window.innerWidth, h: window.innerHeight }, tokens: tokens };
 })();
 `;

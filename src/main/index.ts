@@ -1,6 +1,7 @@
 import { buildTree } from './mapper';
-import type { IRNode } from './ir/types';
+import type { IRNode, TokenSet } from './ir/types';
 import type { UIMessage, PluginMessage } from '../shared/messages';
+import { createVariablesFromTokens } from './variables/create';
 
 figma.showUI(__html__, { width: 420, height: 720, themeColors: true });
 
@@ -56,13 +57,22 @@ function base64ToBytes(dataUrl: string): Uint8Array {
   return bytes;
 }
 
-async function handleConvertJson(payload: { screens: IRNode[] }) {
+async function handleConvertJson(payload: { screens: IRNode[]; tokens?: TokenSet | null }) {
   const ir = payload?.screens ?? [];
   if (!ir.length) {
     send({ type: 'error', message: 'No nodes parsed.' });
     return;
   }
-  const nodes = await buildTree(ir);
+  let variableCount = 0;
+  let bindings: import('./variables/create').BindingIndex | null = null;
+  try {
+    const result = await createVariablesFromTokens(payload?.tokens ?? null);
+    variableCount = result.variableCount;
+    bindings = result.bindings;
+  } catch (e) {
+    console.warn('Variable creation failed:', e);
+  }
+  const nodes = await buildTree(ir, bindings);
   if (!nodes.length) {
     send({ type: 'error', message: 'Nothing to render.' });
     return;
@@ -88,7 +98,7 @@ async function handleConvertJson(payload: { screens: IRNode[] }) {
   figma.currentPage.selection = nodes;
   figma.viewport.scrollAndZoomIntoView(nodes);
 
-  send({ type: 'done', nodeCount: nodes.length });
+  send({ type: 'done', nodeCount: nodes.length, variableCount });
 }
 
 // Mapped over UIMessage['type'] so adding a new variant requires adding a
