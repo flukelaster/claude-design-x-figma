@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { UIMessage, PluginMessage } from '../shared/messages';
 import type { IRNode } from '../main/ir/types';
+import { normaliseServer } from './normalise-server';
 
 const DEFAULT_SERVER = 'http://127.0.0.1:7777';
 const SERVE_CMD = 'npm run serve';
@@ -257,19 +258,25 @@ const messageStyle: React.CSSProperties = {
   whiteSpace: 'pre-wrap',
 };
 
-function normaliseServer(raw: string): string {
-  return raw.trim().replace(/\/+$/, '').replace(/^(?!https?:\/\/)/i, 'http://');
-}
-
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = FETCH_TIMEOUT_MS) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: ac.signal });
+    // `credentials: 'omit'` is the default for every outbound call so cookies
+    // scoped to the Figma iframe origin are never forwarded to a Server URL
+    // that the user pointed at a same-origin endpoint. Callers can still
+    // override via `init.credentials` if needed.
+    return await fetch(url, { credentials: 'omit', ...init, signal: ac.signal });
   } finally {
     clearTimeout(timer);
   }
 }
+
+const STATUS_META = {
+  online:  { dot: colors.success, text: colors.success, label: 'Online' },
+  offline: { dot: colors.danger,  text: colors.danger,  label: 'Offline' },
+  unknown: { dot: colors.warning, text: colors.warning, label: 'Checking…' },
+} satisfies Record<ServerStatus, { dot: string; text: string; label: string }>;
 
 export function App() {
   const [url, setUrl] = useState('');
@@ -284,6 +291,7 @@ export function App() {
   const [error, setError] = useState('');
   const [converting, setConverting] = useState(false);
   const [serverStatus, setServerStatus] = useState<ServerStatus>('unknown');
+  const [helpOpen, setHelpOpen] = useState(true);
 
   React.useEffect(() => {
     const onMsg = (e: MessageEvent) => {
@@ -382,17 +390,9 @@ export function App() {
     post({ type: 'convert-json', payload: scraped });
   };
 
-  const numericInput: React.CSSProperties = { ...inputStyle, width: '100%', boxSizing: 'border-box' };
-
   const canConvert = scrapeState === 'ready' && !!scraped;
   const canScrape = scrapeState !== 'scraping' && url.trim().length > 0 && serverStatus !== 'offline';
-
-  const statusMeta: Record<ServerStatus, { dot: string; text: string; label: string }> = {
-    online:  { dot: colors.success, text: colors.success, label: 'Online' },
-    offline: { dot: colors.danger, text: colors.danger, label: 'Offline' },
-    unknown: { dot: colors.warning, text: colors.warning, label: 'Checking…' },
-  };
-  const sm = statusMeta[serverStatus];
+  const sm = STATUS_META[serverStatus];
 
   return (
     <div style={appStyle}>
@@ -416,7 +416,11 @@ export function App() {
       </header>
 
       <main style={contentStyle}>
-        <details open style={helpStyle}>
+        <details
+          open={helpOpen}
+          onToggle={e => setHelpOpen((e.currentTarget as HTMLDetailsElement).open)}
+          style={helpStyle}
+        >
           <summary style={{ ...summaryStyle, color: colors.text }}>How to use</summary>
           <ol style={helpListStyle}>
             <li>Run <code style={codeStyle}>npm run serve</code> and wait until the server is Online.</li>
@@ -452,19 +456,19 @@ export function App() {
             <div style={advancedGridStyle}>
               <div style={fieldGroupStyle}>
                 <label style={labelStyle}>Width</label>
-                <input type="text" inputMode="numeric" pattern="[0-9]*" value={width} onChange={e => setWidth(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={numericInput} />
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={width} onChange={e => setWidth(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={inputStyle} />
               </div>
               <div style={fieldGroupStyle}>
                 <label style={labelStyle}>Height</label>
-                <input type="text" inputMode="numeric" pattern="[0-9]*" value={height} onChange={e => setHeight(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={numericInput} />
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={height} onChange={e => setHeight(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={inputStyle} />
               </div>
               <div style={fieldGroupStyle}>
                 <label style={labelStyle}>Wait (ms)</label>
-                <input type="text" inputMode="numeric" pattern="[0-9]*" value={waitMs} onChange={e => setWaitMs(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={numericInput} />
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={waitMs} onChange={e => setWaitMs(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={inputStyle} />
               </div>
               <div style={fieldGroupStyle}>
                 <label style={labelStyle}>Server</label>
-                <input type="text" value={server} onChange={e => setServer(e.target.value)} style={numericInput} />
+                <input type="text" value={server} onChange={e => setServer(e.target.value)} style={inputStyle} />
               </div>
             </div>
           </details>
