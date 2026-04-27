@@ -37,17 +37,16 @@
 ## 🚀 Quick start
 
 ```bash
-# 1. Install
+# 1. Install (Playwright Chromium is needed for the scraper)
 npm install
 npx playwright install chromium
 
-# 2. Build the plugin
-npm run build
-
-# 3. Start the local scraper
+# 2. Start the local scraper
 npm run serve
 # → http://127.0.0.1:7777
 ```
+
+Plugin bundles in `dist/` are committed and kept in sync by CI, so cloning + the steps above is enough — no `npm run build` required to use the plugin. Hack on `src/`? Run `npm run build` (or `npm run watch`) to rebuild locally; CI rebuilds on push to `main`.
 
 Then in **Figma desktop**:
 

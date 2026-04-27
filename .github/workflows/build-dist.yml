@@ -1,0 +1,62 @@
+name: Build dist
+
+# Keeps dist/main.js + dist/ui.html in sync with src/ on the main branch so
+# downloads of the source zip Just Work — users don't need to run
+# `npm run build` before importing manifest.json into Figma.
+#
+# Trigger: any push to main that touches source files (src/**, cli/**,
+# manifest.json, build configs, package*.json). The job rebuilds, and if dist/
+# diffs from what's already committed, commits the new bundles back to main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'cli/**'
+      - 'manifest.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'vite.config.ts'
+      - 'vite.ui.config.ts'
+      - '.github/workflows/build-dist.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-dist-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Use a token that can push back; default GITHUB_TOKEN works because
+          # of `permissions.contents: write` above.
+          persist-credentials: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Commit rebuilt dist if changed
+        run: |
+          if git diff --quiet -- dist/; then
+            echo "dist/ already in sync — nothing to commit"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/
+          git commit -m "chore(dist): rebuild bundles [skip ci]"
+          git push
