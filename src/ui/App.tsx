@@ -65,7 +65,12 @@ export function App() {
     setScrapeInfo('');
     setStatus('');
     setError('');
-    const base = server.trim().replace(/\/+$/, '').replace(/^(?!https?:\/\/)/, 'http://');
+    const base = server.trim().replace(/\/+$/, '').replace(/^(?!https?:\/\/)/i, 'http://');
+    if (!base || base === 'http://') {
+      setError('Server URL is empty.');
+      setScrapeState('idle');
+      return;
+    }
     try {
       // Health check first so we can show actionable error.
       try {
