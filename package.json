@@ -9,7 +9,8 @@
     "build": "vite build && vite build --config vite.ui.config.ts",
     "watch": "vite build --watch",
     "test": "vitest run",
-    "cli": "tsx cli/bin.ts"
+    "cli": "tsx cli/bin.ts",
+    "serve": "tsx cli/serve.ts"
   },
   "devDependencies": {
     "@figma/plugin-typings": "^1.100.0",

@@ -42,7 +42,32 @@ npm run watch       # rebuild sandbox on change
 
 Then in Figma desktop: **Plugins → Development → Import plugin from manifest…** → pick `manifest.json`.
 
-## CLI usage
+## Usage
+
+The plugin has three input modes — pick whichever fits the source:
+
+### Mode 1 — URL (recommended)
+
+End-to-end inside Figma. The plugin POSTs the URL to a local companion server that runs Playwright, then renders the returned IR.
+
+1. Start the companion server (once per session):
+   ```bash
+   npm run serve
+   # → claude-figma serve → http://127.0.0.1:7777
+   ```
+2. In the plugin: pick **URL** tab → paste URL → click **Scrape** → wait → click **Convert to Figma**.
+
+The server is local-only (binds `127.0.0.1`); URLs never leave your machine.
+
+Override host/port: `PORT=8080 HOST=0.0.0.0 npm run serve` or `npm run serve -- --port 8080 --host 0.0.0.0`.
+
+### Mode 2 — HTML
+
+Paste raw HTML directly into the plugin's **HTML** tab → click **Convert to Figma**. No server needed. Best for static markup; SPAs need Mode 1 since the plugin can't execute JS.
+
+### Mode 3 — JSON (CLI)
+
+For headless / CI flows, or when you want to inspect/edit the IR before rendering:
 
 ```bash
 npm run cli -- <url> [-o screens.json] [--width 1440] [--height 900] [--wait 500]
@@ -55,7 +80,18 @@ npm run cli -- https://example.com
 npm run cli -- https://app.local/dashboard -o dashboard.json --width 1280
 ```
 
-Output is a JSON file containing the scraped IR. Open the plugin in Figma, paste the JSON (or use the import flow), and the plugin will render it as Figma frames.
+Then in the plugin **JSON** tab → pick the file → **Convert to Figma**.
+
+## Server API
+
+`cli/serve.ts` exposes:
+
+| Method | Path     | Body                                                  | Returns                              |
+|--------|----------|-------------------------------------------------------|--------------------------------------|
+| GET    | `/ping`  | —                                                     | `{ ok: true, service, version }`     |
+| POST   | `/scrape`| `{ url, viewport?: {width,height}, waitMs? }`         | `{ screens: IRNode[], viewport }`    |
+
+CORS is open (`*`) so the Figma plugin iframe can call it.
 
 ## Tests
 
