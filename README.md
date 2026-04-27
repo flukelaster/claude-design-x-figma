@@ -175,6 +175,77 @@ npm test
 
 ---
 
+## 🗺 Roadmap
+
+Top picks first. Open to PRs — pick a box, file an issue, ship.
+
+### Top 3 (highest ROI)
+
+- [ ] **CSS custom properties → Figma Variables** — extract `--token-*` declarations into a Figma Variables collection so tokens flow end-to-end.
+- [ ] **Multi-viewport scrape** — one click, output a frame set per breakpoint (mobile / tablet / desktop).
+- [ ] **Repeated-pattern detection** — collapse repeated cards/rows into Figma components + instances instead of duplicate frames.
+
+### Fidelity
+
+- [ ] Multi-stop gradients + multiple background layers
+- [ ] Inline `<svg>` → real vector nodes (not raster)
+- [ ] Per-side borders (`individualStrokeWeights`), dashed/dotted strokes
+- [ ] Inner shadow, multiple shadows, `backdrop-filter` blur
+- [ ] `transform: rotate / scale / translate` → matrix
+- [ ] Pseudo-elements `::before` / `::after`
+- [ ] Web font loading via `figma.loadFontAsync` + Google Fonts
+- [ ] `<picture>` / `srcset` viewport-aware resolution
+
+### Layout
+
+- [ ] CSS Grid → Figma grid auto-layout
+- [ ] `position: absolute / fixed` properly anchored to parent
+- [ ] Sticky header detection
+- [ ] `overflow: scroll` → clipped frame
+
+### Multi-state / responsive
+
+- [ ] Scrape hover / focus states → component variants
+- [ ] Light / dark mode toggle → two variants
+- [ ] Click-through scrape (N pages) → Figma pages or sections
+
+### Component awareness
+
+- [ ] Code Connect mapping — link scraped components to source-of-truth library components
+- [ ] Storybook scrape → one Figma component per story
+
+### UX / workflow
+
+- [ ] Persist last URL + presets via `clientStorage` (e.g. *iPhone 15*, *Desktop 1440*)
+- [ ] Real progress events from sandbox → determinate progress bar
+- [ ] Cancel mid-convert
+- [ ] Diff mode: new scrape vs previous → highlight changed nodes
+- [ ] Auto-name layers from semantic HTML (`<header>` → `Header`, etc.)
+- [ ] Download / replay IR JSON button
+- [ ] Selection-scoped scrape (e.g. `[data-scope]` only)
+
+### Server
+
+- [ ] Auth pages: cookie / header passthrough
+- [ ] Scroll-to-bottom for lazy-loaded content
+- [ ] SPA route handling
+- [ ] Batch URLs in one request
+- [ ] URL + viewport result cache
+
+### Claude loop
+
+- [ ] **Send to Claude** — push frame screenshot + node tree back as feedback prompt
+- [ ] **Generate N variants** — Claude returns multiple HTML, plugin imports side-by-side for compare
+- [ ] Inline Claude review notes as annotations on frames
+- [ ] Reverse direction: Figma frame → IR → HTML scaffold
+
+### Distribution
+
+- [ ] Publish to Figma Community
+- [ ] Opt-in crash telemetry
+
+---
+
 ## 🧰 Tech
 
 - **Playwright** — headless render
