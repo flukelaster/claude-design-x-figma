@@ -1,0 +1,12 @@
+{
+  "name": "Claude Design → Figma",
+  "id": "claude-design-x-figma",
+  "api": "1.0.0",
+  "main": "dist/main.js",
+  "ui": "dist/ui.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": ["*"],
+    "reasoning": "Fetch images referenced by <img> tags in pasted markup."
+  }
+}
