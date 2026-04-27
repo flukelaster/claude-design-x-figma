@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { UIMessage, PluginMessage } from '../shared/messages';
-import type { IRNode } from '../main/ir/types';
+import type { IRNode, TokenSet } from '../main/ir/types';
 import { normaliseServer } from './normalise-server';
 
 const DEFAULT_SERVER = 'http://127.0.0.1:7777';
@@ -11,7 +11,7 @@ const PING_TIMEOUT_MS = 2_000;
 
 type ScrapeState = 'idle' | 'scraping' | 'ready';
 type ServerStatus = 'unknown' | 'online' | 'offline';
-type Scraped = { screens: IRNode[] };
+type Scraped = { screens: IRNode[]; tokens?: TokenSet | null };
 
 const colors = {
   panel: '#2B2B2B',
@@ -353,7 +353,12 @@ export function App() {
       const msg = e.data?.pluginMessage as PluginMessage | undefined;
       if (!msg) return;
       if (msg.type === 'done') {
-        setStatus(`Created ${msg.nodeCount} root frame(s).`);
+        const vars = msg.variableCount ?? 0;
+        setStatus(
+          vars > 0
+            ? `Created ${msg.nodeCount} root frame(s) and ${vars} variable(s).`
+            : `Created ${msg.nodeCount} root frame(s).`,
+        );
         setError('');
         setConverting(false);
       } else if (msg.type === 'error') {
@@ -424,8 +429,14 @@ export function App() {
       if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
       const screens: IRNode[] | null = Array.isArray(body?.screens) ? body.screens : null;
       if (!screens || !screens.length) throw new Error('Server returned no screens.');
-      setScraped({ screens });
-      setScrapeInfo(`${screens.length} screen(s) scraped`);
+      const tokens: TokenSet | null = body?.tokens && Array.isArray(body.tokens.vars) ? body.tokens : null;
+      setScraped({ screens, tokens });
+      const tokenCount = tokens?.vars.length ?? 0;
+      setScrapeInfo(
+        tokenCount > 0
+          ? `${screens.length} screen(s), ${tokenCount} token(s) scraped`
+          : `${screens.length} screen(s) scraped`,
+      );
       setScrapeState('ready');
     } catch (e: unknown) {
       const err = e as { name?: string; message?: string } | undefined;

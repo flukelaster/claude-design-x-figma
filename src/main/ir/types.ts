@@ -158,6 +158,23 @@ export type IRNode = {
   children: IRNode[];
 };
 
+// CSS custom properties (--foo) extracted from rendered stylesheets, grouped
+// by mode. The default mode key is "Light"; alternates (e.g. "Dark") come from
+// theme selectors like [data-theme="dark"], html.dark, or
+// `@media (prefers-color-scheme: dark)`.
+export type TokenType = 'COLOR' | 'FLOAT' | 'STRING';
+
+export type TokenVar = {
+  name: string;                          // raw "--token-color-primary"
+  type: TokenType;
+  values: Record<string, string>;        // mode → raw CSS value (literal or "var(--x)")
+};
+
+export type TokenSet = {
+  modes: string[];                       // first entry = default mode
+  vars: TokenVar[];
+};
+
 export const TEXT_TAGS = new Set([
   'p', 'span', 'a', 'strong', 'em', 'b', 'i', 'small', 'label',
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6',

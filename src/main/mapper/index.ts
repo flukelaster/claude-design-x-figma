@@ -1,6 +1,14 @@
 import { IRNode, ResolvedStyle, TEXT_TAGS, BlendModeName } from '../ir/types';
 import { hexToRGB } from '../style/color';
 import { computedToResolved } from './computed';
+import { colorKeyFromCss } from '../variables/parse';
+import type { BindingIndex } from '../variables/create';
+
+// Mapper writes paints/numerics directly. To bind a variable we have to
+// intercept at write time. Threading a context arg through ~30 functions is
+// noisy; a module-scoped slot, set/cleared by buildTree, keeps each call site
+// to a single line change. Always reset in buildTree's `finally`.
+let _bindings: BindingIndex | null = null;
 
 const BLEND_MAP: Record<BlendModeName, BlendMode> = {
   'normal': 'NORMAL',
@@ -170,6 +178,45 @@ async function loadFont(family: string, style: string, sampleText = ''): Promise
 function solidPaint(hex: string): SolidPaint {
   const { r, g, b, a } = hexToRGB(hex);
   return { type: 'SOLID', color: { r, g, b }, opacity: a };
+}
+
+// Returns a SolidPaint bound to a Variable when the hex matches an indexed
+// token; otherwise the same plain paint solidPaint() would produce. Caller
+// uses this at sites that hold a real, declared colour — not at fallback
+// placeholders like `#E5E7EB` for missing image fills.
+function boundColorPaint(hex: string): SolidPaint {
+  const paint = solidPaint(hex);
+  if (!_bindings || _bindings.byColor.size === 0) return paint;
+  const key = colorKeyFromCss(hex);
+  if (!key) return paint;
+  const variable = _bindings.byColor.get(key);
+  if (!variable) return paint;
+  try {
+    return figma.variables.setBoundVariableForPaint(paint, 'color', variable) as SolidPaint;
+  } catch {
+    return paint;
+  }
+}
+
+// Bind a numeric field (paddingLeft, itemSpacing, cornerRadius corners, …) to
+// a FLOAT variable when the value matches. setBoundVariable accepts the field
+// names defined as VariableBindableNodeField / VariableBindableTextField.
+function bindNumericField(node: SceneNode | TextNode, field: string, value: number | undefined) {
+  if (!_bindings || value == null || _bindings.byNumber.size === 0) return;
+  const variable = _bindings.byNumber.get(value);
+  if (!variable) return;
+  try {
+    (node as any).setBoundVariable(field, variable);
+  } catch {}
+}
+
+function bindStringField(node: TextNode, field: 'fontFamily', value: string | undefined) {
+  if (!_bindings || !value || _bindings.byString.size === 0) return;
+  const variable = _bindings.byString.get(value);
+  if (!variable) return;
+  try {
+    (node as any).setBoundVariable(field, variable);
+  } catch {}
 }
 
 function hasContainerStyling(ir: IRNode): boolean {
@@ -407,10 +454,20 @@ async function buildText(ir: IRNode): Promise<TextNode> {
   const t = figma.createText();
   t.fontName = font;
   t.characters = characters;
-  if (s.fontSize) t.fontSize = s.fontSize;
-  if (s.lineHeight) t.lineHeight = { value: s.lineHeight, unit: 'PIXELS' };
-  if (s.letterSpacing) t.letterSpacing = { value: s.letterSpacing, unit: 'PIXELS' };
-  if (s.color) t.fills = [solidPaint(s.color)];
+  if (s.fontSize) {
+    t.fontSize = s.fontSize;
+    bindNumericField(t, 'fontSize', s.fontSize);
+  }
+  if (s.lineHeight) {
+    t.lineHeight = { value: s.lineHeight, unit: 'PIXELS' };
+    bindNumericField(t, 'lineHeight', s.lineHeight);
+  }
+  if (s.letterSpacing) {
+    t.letterSpacing = { value: s.letterSpacing, unit: 'PIXELS' };
+    bindNumericField(t, 'letterSpacing', s.letterSpacing);
+  }
+  if (s.color) t.fills = [boundColorPaint(s.color)];
+  bindStringField(t, 'fontFamily', family);
   if (s.textAlign) {
     const map: Record<string, 'LEFT'|'CENTER'|'RIGHT'|'JUSTIFIED'> = {
       left: 'LEFT', center: 'CENTER', right: 'RIGHT', justify: 'JUSTIFIED',
@@ -553,7 +610,7 @@ async function buildBgFills(s: ResolvedStyle): Promise<Paint[]> {
       }
     }
   }
-  if (!fills.length && s.bg) fills.push(solidPaint(s.bg));
+  if (!fills.length && s.bg) fills.push(boundColorPaint(s.bg));
   return fills;
 }
 
@@ -625,8 +682,17 @@ function applyCornerRadius(frame: FrameNode, s: ResolvedStyle) {
       frame.bottomLeftRadius = s.corners.bl;
       frame.bottomRightRadius = s.corners.br;
     } catch {}
+    bindNumericField(frame, 'topLeftRadius', s.corners.tl);
+    bindNumericField(frame, 'topRightRadius', s.corners.tr);
+    bindNumericField(frame, 'bottomLeftRadius', s.corners.bl);
+    bindNumericField(frame, 'bottomRightRadius', s.corners.br);
   } else if (s.radius !== undefined) {
     frame.cornerRadius = s.radius;
+    // cornerRadius isn't itself bindable; bind each corner instead.
+    bindNumericField(frame, 'topLeftRadius', s.radius);
+    bindNumericField(frame, 'topRightRadius', s.radius);
+    bindNumericField(frame, 'bottomLeftRadius', s.radius);
+    bindNumericField(frame, 'bottomRightRadius', s.radius);
   }
 }
 
@@ -636,7 +702,9 @@ function applyBorder(frame: FrameNode, s: ResolvedStyle) {
   const hasSides = sides && (sides.t || sides.r || sides.b || sides.l);
   if (!hasUniform && !hasSides) return;
 
-  frame.strokes = [solidPaint(s.borderColor ?? '#E5E7EB')];
+  // Only the explicit border colour gets bound. The fallback gray is a
+  // placeholder for "border declared but no colour parsed", not a real token.
+  frame.strokes = [s.borderColor ? boundColorPaint(s.borderColor) : solidPaint('#E5E7EB')];
 
   if (hasSides) {
     try {
@@ -644,12 +712,17 @@ function applyBorder(frame: FrameNode, s: ResolvedStyle) {
       (frame as any).strokeRightWeight = sides!.r;
       (frame as any).strokeBottomWeight = sides!.b;
       (frame as any).strokeLeftWeight = sides!.l;
+      bindNumericField(frame, 'strokeTopWeight', sides!.t);
+      bindNumericField(frame, 'strokeRightWeight', sides!.r);
+      bindNumericField(frame, 'strokeBottomWeight', sides!.b);
+      bindNumericField(frame, 'strokeLeftWeight', sides!.l);
     } catch {
       // Older Figma plugin runtime: fall back to uniform max side
       frame.strokeWeight = Math.max(sides!.t, sides!.r, sides!.b, sides!.l);
     }
   } else if (hasUniform) {
     frame.strokeWeight = s.borderWidth!;
+    bindNumericField(frame, 'strokeWeight', s.borderWidth!);
   }
 
   if (s.borderStyle === 'dashed') frame.dashPattern = [6, 4];
@@ -664,12 +737,19 @@ async function applyFrameStyle(frame: FrameNode, s: ResolvedStyle) {
   }
 
   if (frame.layoutMode !== 'NONE') {
-    if (s.gap !== undefined) frame.itemSpacing = s.gap;
+    if (s.gap !== undefined) {
+      frame.itemSpacing = s.gap;
+      bindNumericField(frame, 'itemSpacing', s.gap);
+    }
     if (s.padding) {
       frame.paddingTop = s.padding.t;
       frame.paddingRight = s.padding.r;
       frame.paddingBottom = s.padding.b;
       frame.paddingLeft = s.padding.l;
+      bindNumericField(frame, 'paddingTop', s.padding.t);
+      bindNumericField(frame, 'paddingRight', s.padding.r);
+      bindNumericField(frame, 'paddingBottom', s.padding.b);
+      bindNumericField(frame, 'paddingLeft', s.padding.l);
     }
     const ALIGN_MAP: Record<string, 'MIN'|'CENTER'|'MAX'|'SPACE_BETWEEN'|'BASELINE'> = {
       start: 'MIN', center: 'CENTER', end: 'MAX', 'space-between': 'SPACE_BETWEEN', baseline: 'BASELINE', stretch: 'MIN',
@@ -898,11 +978,19 @@ export async function buildNode(ir: IRNode, parent: IRNode | null = null): Promi
   return node;
 }
 
-export async function buildTree(roots: IRNode[]): Promise<SceneNode[]> {
-  const out: SceneNode[] = [];
-  for (const r of roots) {
-    const n = await buildNode(r, null);
-    if (n) out.push(n);
+export async function buildTree(
+  roots: IRNode[],
+  bindings: BindingIndex | null = null,
+): Promise<SceneNode[]> {
+  _bindings = bindings;
+  try {
+    const out: SceneNode[] = [];
+    for (const r of roots) {
+      const n = await buildNode(r, null);
+      if (n) out.push(n);
+    }
+    return out;
+  } finally {
+    _bindings = null;
   }
-  return out;
 }
