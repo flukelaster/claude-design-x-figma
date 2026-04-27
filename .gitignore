@@ -1,8 +1,12 @@
 # Dependencies
 node_modules/
 
-# Build output
-dist/
+# Build output is intentionally tracked. Users install this plugin by
+# downloading the source zip and importing manifest.json into Figma, which
+# references dist/main.js + dist/ui.html. Keeping the bundles in git means
+# clone-and-run works without `npm run build`. CI rebuilds dist/ on push to
+# main (see .github/workflows/build-dist.yml) so the tracked bundles stay in
+# sync with src/ automatically.
 
 # Logs
 *.log
