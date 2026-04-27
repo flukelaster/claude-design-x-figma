@@ -2,7 +2,7 @@ import { buildTree } from './mapper';
 import type { IRNode } from './ir/types';
 import type { UIMessage, PluginMessage } from '../shared/messages';
 
-figma.showUI(__html__, { width: 420, height: 560, themeColors: true });
+figma.showUI(__html__, { width: 420, height: 720, themeColors: true });
 
 function send(msg: PluginMessage) {
   figma.ui.postMessage(msg);

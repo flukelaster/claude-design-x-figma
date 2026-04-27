@@ -287,6 +287,30 @@ const messageStyle: React.CSSProperties = {
   whiteSpace: 'pre-wrap',
 };
 
+const progressTrackStyle: React.CSSProperties = {
+  position: 'relative',
+  height: 6,
+  borderRadius: 999,
+  background: 'rgba(255,255,255,0.06)',
+  border: '1px solid rgba(255,255,255,0.06)',
+  overflow: 'hidden',
+};
+
+const progressBarStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  bottom: 0,
+  width: '40%',
+  borderRadius: 999,
+  background: 'linear-gradient(90deg, rgba(79,140,255,0) 0%, #4F8CFF 50%, rgba(79,140,255,0) 100%)',
+  animation: 'cdxf-progress 1.1s ease-in-out infinite',
+};
+
+const PROGRESS_KEYFRAMES = `@keyframes cdxf-progress {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}`;
+
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = FETCH_TIMEOUT_MS) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
@@ -427,6 +451,7 @@ export function App() {
 
   return (
     <div style={appStyle}>
+      <style>{PROGRESS_KEYFRAMES}</style>
       <header style={headerStyle}>
         <div style={{ minWidth: 0, flex: '1 1 auto' }}>
           <h1 style={titleStyle}>
@@ -567,6 +592,11 @@ export function App() {
         >
           {converting ? 'Converting…' : 'Convert to Figma'}
         </button>
+        {converting && (
+          <div style={progressTrackStyle} role="progressbar" aria-label="Converting to Figma">
+            <span style={progressBarStyle} />
+          </div>
+        )}
         {status && <div style={{ ...messageStyle, color: colors.success, background: 'rgba(45, 212, 123, 0.12)', border: '1px solid rgba(45, 212, 123, 0.24)' }}>{status}</div>}
         {error && <div style={{ ...messageStyle, color: colors.danger, background: 'rgba(255, 107, 107, 0.12)', border: '1px solid rgba(255, 107, 107, 0.25)' }}>{error}</div>}
       </footer>
