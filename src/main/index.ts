@@ -1,4 +1,3 @@
-import { parseHTML } from './parser/html';
 import { buildTree } from './mapper';
 import type { UIMessage, PluginMessage } from '../shared/messages';
 
@@ -52,15 +51,8 @@ function base64ToBytes(dataUrl: string): Uint8Array {
 
 figma.ui.onmessage = async (msg: UIMessage) => {
   try {
-    let ir;
-    if (msg.type === 'convert') {
-      ir = parseHTML(msg.source);
-    } else if (msg.type === 'convert-json') {
-      // Payload from CLI scrape: { screens: IRNode[], viewport: {...} }
-      ir = msg.payload?.screens ?? [];
-    } else {
-      return;
-    }
+    if (msg.type !== 'convert-json') return;
+    const ir = msg.payload?.screens ?? [];
     if (!ir.length) {
       send({ type: 'error', message: 'No nodes parsed.' });
       return;

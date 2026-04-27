@@ -1,11 +1,11 @@
 # Claude Design → Figma
 
-Figma plugin + CLI that turns rendered web pages (or pasted HTML) into native Figma frames. Designed for piping Claude-generated UI prototypes back into Figma for design review.
+Figma plugin that scrapes a live URL and rebuilds it as native Figma frames. Designed for piping Claude-generated UI prototypes back into Figma for design review.
 
 ## How it works
 
-1. **CLI** (`claude-figma <url>`) launches a headless browser via Playwright, renders the URL, and scrapes the live DOM into an intermediate representation (IR) JSON file.
-2. **Figma plugin** loads that JSON (or raw pasted HTML) and rebuilds the layout as real Figma nodes — frames, text, images, auto-layout, fills, strokes, effects.
+1. A local **companion server** (`npm run serve`) runs Playwright, renders the URL, and scrapes the live DOM into an intermediate representation (IR).
+2. The **Figma plugin** sends the URL to the server, receives the IR, and rebuilds the layout as real Figma nodes — frames, text, images, auto-layout, fills, strokes, effects.
 
 ## Project layout
 
@@ -44,43 +44,28 @@ Then in Figma desktop: **Plugins → Development → Import plugin from manifest
 
 ## Usage
 
-The plugin has three input modes — pick whichever fits the source:
-
-### Mode 1 — URL (recommended)
-
-End-to-end inside Figma. The plugin POSTs the URL to a local companion server that runs Playwright, then renders the returned IR.
-
 1. Start the companion server (once per session):
    ```bash
    npm run serve
    # → claude-figma serve → http://127.0.0.1:7777
    ```
-2. In the plugin: pick **URL** tab → paste URL → click **Scrape** → wait → click **Convert to Figma**.
+2. In the plugin: paste the URL → click **Scrape** → wait → click **Convert to Figma**.
 
 The server is local-only (binds `127.0.0.1`); URLs never leave your machine.
 
-Override host/port: `PORT=8080 HOST=0.0.0.0 npm run serve` or `npm run serve -- --port 8080 --host 0.0.0.0`.
+**Advanced** (collapsed in the UI): `Width`, `Height`, `Wait (ms)`, `Server` URL — override viewport dimensions, settle delay, or point the plugin at a different host/port.
 
-### Mode 2 — HTML
+Override host/port at start: `PORT=8080 HOST=0.0.0.0 npm run serve` or `npm run serve -- --port 8080 --host 0.0.0.0`.
 
-Paste raw HTML directly into the plugin's **HTML** tab → click **Convert to Figma**. No server needed. Best for static markup; SPAs need Mode 1 since the plugin can't execute JS.
+### Headless / CI
 
-### Mode 3 — JSON (CLI)
-
-For headless / CI flows, or when you want to inspect/edit the IR before rendering:
+The CLI runs the same scrape pipeline without a browser:
 
 ```bash
 npm run cli -- <url> [-o screens.json] [--width 1440] [--height 900] [--wait 500]
 ```
 
-Examples:
-
-```bash
-npm run cli -- https://example.com
-npm run cli -- https://app.local/dashboard -o dashboard.json --width 1280
-```
-
-Then in the plugin **JSON** tab → pick the file → **Convert to Figma**.
+Output is the IR JSON — useful for diffing, archival, or feeding other tools.
 
 ## Server API
 

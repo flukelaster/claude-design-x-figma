@@ -1,5 +1,4 @@
 export type UIMessage =
-  | { type: 'convert'; source: string; format: 'html' | 'jsx' }
   | { type: 'convert-json'; payload: any };
 
 export type PluginMessage =
