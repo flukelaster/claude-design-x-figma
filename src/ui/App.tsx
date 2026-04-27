@@ -65,19 +65,25 @@ export function App() {
     setScrapeInfo('');
     setStatus('');
     setError('');
+    const base = server.trim().replace(/\/+$/, '').replace(/^(?!https?:\/\/)/i, 'http://');
+    if (!base || base === 'http://') {
+      setError('Server URL is empty.');
+      setScrapeState('idle');
+      return;
+    }
     try {
       // Health check first so we can show actionable error.
       try {
-        const ping = await fetch(`${server}/ping`, { method: 'GET' });
+        const ping = await fetch(`${base}/ping`, { method: 'GET' });
         if (!ping.ok) throw new Error(`Server responded ${ping.status}`);
       } catch (e: any) {
         throw new Error(
-          `Cannot reach scrape server at ${server}.\n` +
+          `Cannot reach scrape server at ${base}.\n` +
           `Start it in another terminal: ${SERVE_CMD}`,
         );
       }
 
-      const res = await fetch(`${server}/scrape`, {
+      const res = await fetch(`${base}/scrape`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url.trim(), viewport: { width, height }, waitMs }),
