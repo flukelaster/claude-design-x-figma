@@ -63,6 +63,55 @@ Output is a JSON file containing the scraped IR. Open the plugin in Figma, paste
 npm test
 ```
 
+## Commit conventions
+
+Use [Conventional Commits](https://www.conventionalcommits.org/). One concern per commit — split unrelated changes.
+
+Format: `<type>(<scope>): <subject>`
+
+| Type       | When to use                                                              |
+|------------|--------------------------------------------------------------------------|
+| `feat`     | New user-facing feature (new mapper rule, new CLI flag, new UI control)  |
+| `fix`      | Bug fix (incorrect output, crash, regression)                            |
+| `refactor` | Code restructure with no behavior change                                 |
+| `perf`     | Performance improvement                                                  |
+| `test`     | Add or update tests only                                                 |
+| `docs`     | README / comments / type docs only                                       |
+| `style`    | Formatting, whitespace, lint fixes (no logic change)                     |
+| `chore`    | Tooling, deps, build config, gitignore, CI                               |
+| `build`    | Vite / tsconfig / bundler changes                                        |
+| `revert`   | Reverts a previous commit                                                |
+
+Scopes (optional but preferred): `cli`, `plugin`, `mapper`, `parser`, `style`, `ui`, `ir`, `tests`.
+
+Examples:
+
+```
+feat(mapper): support CSS grid → auto-layout
+fix(parser): handle self-closing <img> without alt
+refactor(style): extract color resolver into module
+chore: bump playwright to 1.60
+docs: document --wait flag in README
+test(mapper): cover nested flex containers
+perf(cli): cache computed styles per element
+```
+
+Subject rules:
+- imperative mood ("add" not "added"/"adds")
+- ≤ 72 chars
+- no trailing period
+- lowercase after type
+
+Body (optional, blank line after subject): explain *why*, not *what*. Diff shows what.
+
+Breaking change: append `!` after type/scope and add `BREAKING CHANGE:` in body.
+
+```
+feat(plugin)!: drop support for legacy IR v0 payloads
+
+BREAKING CHANGE: scrape JSON from CLI < 0.1.0 will no longer load.
+```
+
 ## Tech
 
 - Playwright (headless render)
