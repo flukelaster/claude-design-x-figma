@@ -423,7 +423,9 @@ export function App() {
         >
           <summary style={{ ...summaryStyle, color: colors.text }}>How to use</summary>
           <ol style={helpListStyle}>
-            <li>Run <code style={codeStyle}>npm run serve</code> and wait until the server is Online.</li>
+            <li>
+              In your <strong>Terminal</strong>, run <code style={codeStyle}>npm run serve</code> from the project folder and wait until the status pill above shows Online.
+            </li>
             <li>
               In Claude Design, click <strong>Present</strong> (top-right) → <strong>New tab</strong>, then copy the URL from the new tab and paste it below.
             </li>
