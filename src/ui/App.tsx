@@ -1,10 +1,23 @@
 import React, { useState } from 'react';
 import type { UIMessage, PluginMessage } from '../shared/messages';
+import type { IRNode } from '../main/ir/types';
 
 const DEFAULT_SERVER = 'http://127.0.0.1:7777';
 const SERVE_CMD = 'npm run serve';
+const FETCH_TIMEOUT_MS = 30_000;
 
 type ScrapeState = 'idle' | 'scraping' | 'ready';
+type Scraped = { screens: IRNode[] };
+
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ac.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export function App() {
   const [url, setUrl] = useState('');
@@ -13,7 +26,7 @@ export function App() {
   const [height, setHeight] = useState(900);
   const [waitMs, setWaitMs] = useState(500);
   const [scrapeState, setScrapeState] = useState<ScrapeState>('idle');
-  const [scraped, setScraped] = useState<any>(null);
+  const [scraped, setScraped] = useState<Scraped | null>(null);
   const [scrapeInfo, setScrapeInfo] = useState('');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -54,7 +67,7 @@ export function App() {
     }
     try {
       try {
-        const ping = await fetch(`${base}/ping`, { method: 'GET' });
+        const ping = await fetchWithTimeout(`${base}/ping`, { method: 'GET' }, 5_000);
         if (!ping.ok) throw new Error(`Server responded ${ping.status}`);
       } catch {
         throw new Error(
@@ -63,20 +76,24 @@ export function App() {
         );
       }
 
-      const res = await fetch(`${base}/scrape`, {
+      const res = await fetchWithTimeout(`${base}/scrape`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url.trim(), viewport: { width, height }, waitMs }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
-      const screens = Array.isArray(body?.screens) ? body.screens : null;
+      const screens: IRNode[] | null = Array.isArray(body?.screens) ? body.screens : null;
       if (!screens || !screens.length) throw new Error('Server returned no screens.');
       setScraped({ screens });
       setScrapeInfo(`${screens.length} screen(s) scraped`);
       setScrapeState('ready');
-    } catch (e: any) {
-      setError(e?.message ?? String(e));
+    } catch (e: unknown) {
+      const err = e as { name?: string; message?: string } | undefined;
+      const message = err?.name === 'AbortError'
+        ? `Scrape timed out after ${FETCH_TIMEOUT_MS / 1000}s.`
+        : (err?.message ?? String(e));
+      setError(message);
       setScrapeState('idle');
     }
   };
