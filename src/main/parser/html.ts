@@ -1,3 +1,7 @@
+// TODO: remove. URL-only mode in src/main/index.ts no longer routes raw HTML
+// through this parser; the scrape server emits IR directly. Tests still pin
+// the parser's behaviour for any future re-introduction, but the production
+// bundle does not call parseHTML.
 import { parse, HTMLElement, TextNode, Node } from 'node-html-parser';
 import { IRNode } from '../ir/types';
 import { resolveStyle } from '../style/resolve';
