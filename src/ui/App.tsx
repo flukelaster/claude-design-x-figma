@@ -197,6 +197,35 @@ const summaryStyle: React.CSSProperties = {
   listStyle: 'none',
 };
 
+const advancedSummaryBaseStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: '8px 10px',
+  borderRadius: 6,
+  border: `1px solid ${colors.line}`,
+  background: 'rgba(255,255,255,0.04)',
+  color: colors.text,
+  cursor: 'pointer',
+  fontSize: 11,
+  lineHeight: '14px',
+  fontWeight: 700,
+  letterSpacing: 0.2,
+  textTransform: 'uppercase',
+  listStyle: 'none',
+  userSelect: 'none',
+  transition: 'background 120ms ease, border-color 120ms ease',
+};
+
+const chevronStyle: React.CSSProperties = {
+  display: 'inline-block',
+  marginLeft: 'auto',
+  color: colors.muted,
+  transition: 'transform 160ms ease',
+};
+
 const advancedGridStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: '1fr 1fr',
@@ -292,6 +321,8 @@ export function App() {
   const [converting, setConverting] = useState(false);
   const [serverStatus, setServerStatus] = useState<ServerStatus>('unknown');
   const [helpOpen, setHelpOpen] = useState(true);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedHover, setAdvancedHover] = useState(false);
 
   React.useEffect(() => {
     const onMsg = (e: MessageEvent) => {
@@ -453,24 +484,47 @@ export function App() {
             />
           </div>
 
-          <details style={detailsStyle}>
-            <summary style={summaryStyle}>Advanced</summary>
+          <details
+            open={advancedOpen}
+            onToggle={e => setAdvancedOpen((e.currentTarget as HTMLDetailsElement).open)}
+            style={detailsStyle}
+          >
+            <summary
+              style={{
+                ...advancedSummaryBaseStyle,
+                background: advancedHover || advancedOpen ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.04)',
+                borderColor: advancedHover || advancedOpen ? 'rgba(255,255,255,0.16)' : colors.line,
+              }}
+              onMouseEnter={() => setAdvancedHover(true)}
+              onMouseLeave={() => setAdvancedHover(false)}
+            >
+              <span>Advanced</span>
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                aria-hidden="true"
+                style={{ ...chevronStyle, transform: advancedOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
+              >
+                <path d="M3 1.5 L6.5 5 L3 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              </svg>
+            </summary>
             <div style={advancedGridStyle}>
               <div style={fieldGroupStyle}>
                 <label style={labelStyle}>Width</label>
-                <input type="text" inputMode="numeric" pattern="[0-9]*" value={width} onChange={e => setWidth(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={inputStyle} />
+                <input title="Viewport width in pixels" type="text" inputMode="numeric" pattern="[0-9]*" value={width} onChange={e => setWidth(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={inputStyle} />
               </div>
               <div style={fieldGroupStyle}>
                 <label style={labelStyle}>Height</label>
-                <input type="text" inputMode="numeric" pattern="[0-9]*" value={height} onChange={e => setHeight(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={inputStyle} />
+                <input title="Viewport height in pixels" type="text" inputMode="numeric" pattern="[0-9]*" value={height} onChange={e => setHeight(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={inputStyle} />
               </div>
               <div style={fieldGroupStyle}>
                 <label style={labelStyle}>Wait (ms)</label>
-                <input type="text" inputMode="numeric" pattern="[0-9]*" value={waitMs} onChange={e => setWaitMs(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={inputStyle} />
+                <input title="Settle delay after page load, in milliseconds" type="text" inputMode="numeric" pattern="[0-9]*" value={waitMs} onChange={e => setWaitMs(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={inputStyle} />
               </div>
               <div style={fieldGroupStyle}>
                 <label style={labelStyle}>Server</label>
-                <input type="text" value={server} onChange={e => setServer(e.target.value)} style={inputStyle} />
+                <input title="Companion server base URL" type="text" value={server} onChange={e => setServer(e.target.value)} style={inputStyle} />
               </div>
             </div>
           </details>
