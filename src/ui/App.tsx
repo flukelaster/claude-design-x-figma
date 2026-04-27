@@ -176,15 +176,15 @@ export function App() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
               <div>
                 <label style={labelStyle}>Width</label>
-                <input type="number" value={width} onChange={e => setWidth(parseInt(e.target.value) || 1440)} style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} />
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={width} onChange={e => setWidth(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} />
               </div>
               <div>
                 <label style={labelStyle}>Height</label>
-                <input type="number" value={height} onChange={e => setHeight(parseInt(e.target.value) || 900)} style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} />
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={height} onChange={e => setHeight(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} />
               </div>
               <div>
                 <label style={labelStyle}>Wait (ms)</label>
-                <input type="number" value={waitMs} onChange={e => setWaitMs(parseInt(e.target.value) || 0)} style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} />
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={waitMs} onChange={e => setWaitMs(parseInt(e.target.value.replace(/\D/g, '')) || 0)} style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} />
               </div>
               <div>
                 <label style={labelStyle}>Server</label>
