@@ -337,6 +337,7 @@ export function App() {
   const [width, setWidth] = useState(1440);
   const [height, setHeight] = useState(900);
   const [waitMs, setWaitMs] = useState(500);
+  const [clickText, setClickText] = useState('');
   const [scrapeState, setScrapeState] = useState<ScrapeState>('idle');
   const [scraped, setScraped] = useState<Scraped | null>(null);
   const [scrapeInfo, setScrapeInfo] = useState('');
@@ -423,7 +424,7 @@ export function App() {
       const res = await fetchWithTimeout(`${base}/scrape`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim(), viewport: { width, height }, waitMs }),
+        body: JSON.stringify({ url: url.trim(), viewport: { width, height }, waitMs, clickText: clickText.trim() || undefined }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
@@ -561,6 +562,17 @@ export function App() {
               <div style={fieldGroupStyle}>
                 <label style={labelStyle}>Server</label>
                 <input title="Companion server base URL" type="text" value={server} onChange={e => setServer(e.target.value)} style={inputStyle} />
+              </div>
+              <div style={{ ...fieldGroupStyle, gridColumn: '1 / -1' }}>
+                <label style={labelStyle}>Click link (optional)</label>
+                <input
+                  title="If the page is a SPA, type a link/button label (e.g. Features) — the scraper clicks it after load before scraping."
+                  type="text"
+                  placeholder="e.g. Features"
+                  value={clickText}
+                  onChange={e => setClickText(e.target.value)}
+                  style={inputStyle}
+                />
               </div>
             </div>
           </details>

@@ -573,13 +573,36 @@ function applySize(node: FrameNode | RectangleNode, s: ResolvedStyle) {
 }
 
 async function buildBgFills(s: ResolvedStyle): Promise<Paint[]> {
-  const fills: Paint[] = [];
+  // Figma fills paint last-on-top; CSS background layers paint first-on-top.
+  // Build in CSS order, reverse before returning. bg color always sits beneath
+  // every bg image (CSS spec) — push it first so it ends up at the bottom of
+  // the reversed list.
+  const layers: Paint[] = [];
   const bgImg = (s as any).__bgImage as string | undefined;
-  if (bgImg) {
-    // Multiple backgrounds are comma-separated; first is top-most. Try each.
-    for (const layer of splitCommas(bgImg)) {
+  // Skip fills entirely for decorative-only divs whose bg is a tiled / repeating
+  // gradient (grid patterns, stripes). Figma can't tile gradient paints; the
+  // screen root's screenshot fill will show through instead.
+  const isUnrenderableBg = !!bgImg && (
+    /repeating-(linear|radial)-gradient/.test(bgImg)
+    || (() => {
+      const sz = (s as any).__bgSize as string | undefined;
+      return !!sz && /^\d+(?:\.\d+)?px(?:\s+\d+(?:\.\d+)?px)?$/.test(sz);
+    })()
+  );
+  // The tile rasterizer (in render.ts) rewrites those bg-images to data: URLs
+  // BEFORE scrape. If bg-image is now url(data:…), it's already rasterized and
+  // should render as a normal image fill — not skipped.
+  const bgIsRasterized = !!bgImg && /^url\(/.test(bgImg);
+  const skipDueToTiledGradient = isUnrenderableBg && !bgIsRasterized;
+  if (s.bg && !skipDueToTiledGradient) layers.push(boundColorPaint(s.bg));
+  if (bgImg && !skipDueToTiledGradient) {
+    const cssLayers = splitCommas(bgImg);
+    // CSS first layer = top. Walk in reverse so caller-side fills.reverse()
+    // puts the first CSS layer at the end (top) of the Figma fills array.
+    const imgLayers: Paint[] = [];
+    for (const layer of cssLayers) {
       const grad = toFigmaGradient(parseGradient(layer));
-      if (grad) { fills.push(grad); continue; }
+      if (grad) { imgLayers.push(grad); continue; }
       const urlMatch = layer.match(/url\(\s*["']?([^"')]+)["']?\s*\)/);
       if (urlMatch) {
         try {
@@ -602,16 +625,17 @@ async function buildBgFills(s: ResolvedStyle): Promise<Paint[]> {
             const paint: ImagePaint = scalingFactor !== undefined
               ? { type: 'IMAGE', scaleMode: 'TILE', imageHash: image.hash, scalingFactor }
               : { type: 'IMAGE', scaleMode, imageHash: image.hash };
-            fills.push(paint);
+            imgLayers.push(paint);
           }
         } catch (e) {
           console.warn('bg-image url load failed:', urlMatch[1], e);
         }
       }
     }
+    // Reverse image layers so CSS-first ends up last in the fill array (top).
+    for (let i = imgLayers.length - 1; i >= 0; i--) layers.push(imgLayers[i]);
   }
-  if (!fills.length && s.bg) fills.push(boundColorPaint(s.bg));
-  return fills;
+  return layers;
 }
 
 function buildEffects(s: ResolvedStyle): Effect[] {
@@ -861,10 +885,15 @@ export async function buildNode(ir: IRNode, parent: IRNode | null = null): Promi
     if (node && 'textAutoResize' in node) {
       const tn = node as TextNode;
       const measuredW = ir.computed?.rectW;
-      if (measuredW && measuredW > 0) {
+      const measuredH = ir.computed?.rectH ?? 0;
+      const lh = ir.computed?.lineHeight ?? ir.computed?.fontSize ?? 16;
+      const isMultiline = measuredH > lh * 1.5;
+      if (measuredW && measuredW > 0 && isMultiline) {
+        // Wrapped text → fixed width, height hugs. Width preserves browser wrap.
         try { tn.textAutoResize = 'HEIGHT'; } catch {}
         try { tn.resize(measuredW, tn.height); } catch {}
       } else {
+        // Single-line text → hug both axes so editing in Figma can grow it.
         try { tn.textAutoResize = 'WIDTH_AND_HEIGHT'; } catch {}
       }
     }
@@ -878,6 +907,22 @@ export async function buildNode(ir: IRNode, parent: IRNode | null = null): Promi
       gap: undefined, padding: undefined, justify: undefined, align: undefined };
     await applyFrameStyle(frame, styleForFrame);
     frame.layoutMode = 'NONE';
+    // Screen root carries a full-page screenshot as a guaranteed visual backstop
+    // for backgrounds we can't faithfully reproduce (tiled gradients, complex
+    // multi-layer bgs, ::before/::after grids). Replace fills with the screenshot
+    // so children still render as editable Figma nodes on top.
+    const shotUrl = ir.attrs.__screenshot;
+    if (shotUrl && parent === null) {
+      try {
+        const bytes = await fetchImageBytes(shotUrl);
+        if (bytes) {
+          const image = figma.createImage(bytes);
+          frame.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
+        }
+      } catch (e) {
+        console.warn('screen root screenshot fill failed:', e);
+      }
+    }
     // CSS overflow other than 'visible' clips in the browser; mirror that so
     // off-screen carousel items / scrolled content don't leak into the canvas.
     const overflow = ir.computed?.overflow;
@@ -922,15 +967,52 @@ export async function buildNode(ir: IRNode, parent: IRNode | null = null): Promi
         frame.paddingRight = padR;
         frame.paddingTop = padT;
         frame.paddingBottom = padB;
-        frame.primaryAxisAlignItems = ALIGN_MAP[justify] ?? 'MIN';
+        // CSS text-align takes precedence over flex justify when the inner text
+        // is hugged — otherwise centered text in a wide frame would left-align
+        // (default justify-content). Map text-align → primaryAxisAlignItems.
+        const TEXT_ALIGN_TO_PRIMARY: Record<string, 'MIN'|'CENTER'|'MAX'|'SPACE_BETWEEN'> = {
+          left: 'MIN', center: 'CENTER', right: 'MAX', justify: 'MIN',
+        };
+        const primaryFromTextAlign = textAlign ? TEXT_ALIGN_TO_PRIMARY[textAlign] : undefined;
+        frame.primaryAxisAlignItems = primaryFromTextAlign ?? ALIGN_MAP[justify] ?? 'MIN';
         frame.counterAxisAlignItems = (ALIGN_MAP[align] as any) ?? 'CENTER';
         try { frame.resize(Math.max(1, w), Math.max(1, h)); } catch {}
+        // primaryAxisSizingMode/counterAxisSizingMode default to AUTO (hug
+        // contents) — that BLOCKS child layoutSizingHorizontal='FILL' because
+        // there's no fixed parent width to fill into. Force FIXED so children
+        // can FILL the frame's known rect dimensions.
+        try { frame.primaryAxisSizingMode = 'FIXED'; } catch {}
+        try { frame.counterAxisSizingMode = 'FIXED'; } catch {}
+        // Modern API equivalent — also set so layoutSizing* readers stay in sync.
         try {
           frame.layoutSizingHorizontal = 'FIXED';
           frame.layoutSizingVertical = 'FIXED';
         } catch {}
 
-        try { (inner as TextNode).textAutoResize = 'HEIGHT'; } catch {}
+        // Inner text sizing rule:
+        //   - Multi-line text: FILL width so wrap matches the container's
+        //     known width (browser already wrapped at this width — preserve).
+        //   - Single-line text: HUG. Centering/right-alignment still works via
+        //     frame.primaryAxisAlignItems (already mapped from CSS justify).
+        //     Filling a single-line text in a chip wraps "Attach" to "Attac\nh".
+        const innerLh = ir.computed?.lineHeight ?? ir.computed?.fontSize ?? 16;
+        const contentH = (ir.computed?.rectH ?? h) - padT - padB;
+        const isMultilineInner = contentH > innerLh * 1.5;
+        frame.appendChild(inner);
+        if (isMultilineInner) {
+          // textAutoResize must be HEIGHT (fixed width, hug height) BEFORE
+          // toggling layoutSizingHorizontal to FILL — otherwise Figma rejects
+          // the FILL transition. layoutGrow=1 backs FILL on older runtimes.
+          try { (inner as TextNode).textAutoResize = 'HEIGHT'; } catch {}
+          try { (inner as TextNode).layoutGrow = 1; } catch {}
+          try { (inner as TextNode).layoutSizingHorizontal = 'FILL'; } catch {}
+          try { (inner as TextNode).layoutSizingVertical = 'HUG'; } catch {}
+        } else {
+          try { (inner as TextNode).textAutoResize = 'WIDTH_AND_HEIGHT'; } catch {}
+          try { (inner as TextNode).layoutGrow = 0; } catch {}
+          try { (inner as TextNode).layoutSizingHorizontal = 'HUG'; } catch {}
+          try { (inner as TextNode).layoutSizingVertical = 'HUG'; } catch {}
+        }
         // If text-align CSS says center/right and justify isn't already set,
         // honour text-align via the inner text node's own alignment.
         if (textAlign && ['left', 'center', 'right', 'justify'].includes(textAlign)) {
@@ -938,7 +1020,6 @@ export async function buildNode(ir: IRNode, parent: IRNode | null = null): Promi
             (inner as TextNode).textAlignHorizontal = textAlign.toUpperCase() as any;
           } catch {}
         }
-        frame.appendChild(inner);
       }
     } else {
       const orderedChildren = ir.children

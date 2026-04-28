@@ -282,7 +282,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     return stops;
   }
   function parseLinearGradient(value) {
-    const m = value.match(new RegExp("^linear-gradient\\((.+)\\)$", "s"));
+    const m = value.match(new RegExp("^(?:repeating-)?linear-gradient\\((.+)\\)$", "s"));
     if (!m) return null;
     const parts = splitTopLevelComma(m[1]);
     let angleDeg = 180;
@@ -325,7 +325,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     };
   }
   function parseRadialGradient(value) {
-    const m = value.match(new RegExp("^radial-gradient\\((.+)\\)$", "s"));
+    const m = value.match(new RegExp("^(?:repeating-)?radial-gradient\\((.+)\\)$", "s"));
     if (!m) return null;
     const parts = splitTopLevelComma(m[1]);
     let stopParts = parts;
@@ -384,8 +384,8 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     };
   }
   function parseGradient(value) {
-    if (value.startsWith("linear-gradient")) return parseLinearGradient(value);
-    if (value.startsWith("radial-gradient")) return parseRadialGradient(value);
+    if (value.startsWith("linear-gradient") || value.startsWith("repeating-linear-gradient")) return parseLinearGradient(value);
+    if (value.startsWith("radial-gradient") || value.startsWith("repeating-radial-gradient")) return parseRadialGradient(value);
     if (value.startsWith("conic-gradient")) return parseConicGradient(value);
     return null;
   }
@@ -1347,13 +1347,22 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     }
   }
   async function buildBgFills(s) {
-    const fills = [];
+    const layers = [];
     const bgImg = s.__bgImage;
-    if (bgImg) {
-      for (const layer of splitTopLevelComma(bgImg)) {
+    const isUnrenderableBg = !!bgImg && (/repeating-(linear|radial)-gradient/.test(bgImg) || (() => {
+      const sz = s.__bgSize;
+      return !!sz && /^\d+(?:\.\d+)?px(?:\s+\d+(?:\.\d+)?px)?$/.test(sz);
+    })());
+    const bgIsRasterized = !!bgImg && /^url\(/.test(bgImg);
+    const skipDueToTiledGradient = isUnrenderableBg && !bgIsRasterized;
+    if (s.bg && !skipDueToTiledGradient) layers.push(boundColorPaint(s.bg));
+    if (bgImg && !skipDueToTiledGradient) {
+      const cssLayers = splitTopLevelComma(bgImg);
+      const imgLayers = [];
+      for (const layer of cssLayers) {
         const grad = toFigmaGradient(parseGradient(layer));
         if (grad) {
-          fills.push(grad);
+          imgLayers.push(grad);
           continue;
         }
         const urlMatch = layer.match(/url\(\s*["']?([^"')]+)["']?\s*\)/);
@@ -1376,16 +1385,16 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
                 if (sizeMatch) scalingFactor = parseFloat(sizeMatch[1]) / 100;
               }
               const paint = scalingFactor !== void 0 ? { type: "IMAGE", scaleMode: "TILE", imageHash: image.hash, scalingFactor } : { type: "IMAGE", scaleMode, imageHash: image.hash };
-              fills.push(paint);
+              imgLayers.push(paint);
             }
           } catch (e) {
             console.warn("bg-image url load failed:", urlMatch[1], e);
           }
         }
       }
+      for (let i = imgLayers.length - 1; i >= 0; i--) layers.push(imgLayers[i]);
     }
-    if (!fills.length && s.bg) fills.push(boundColorPaint(s.bg));
-    return fills;
+    return layers;
   }
   function buildEffects(s) {
     var _a;
@@ -1593,7 +1602,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     return null;
   }
   async function buildNode(ir, parent = null) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D, _E, _F, _G, _H, _I, _J, _K, _L, _M, _N, _O;
     const s = effectiveStyle(ir);
     if (s.layout === "none") return null;
     let node = null;
@@ -1613,7 +1622,10 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       if (node && "textAutoResize" in node) {
         const tn = node;
         const measuredW = (_g = ir.computed) == null ? void 0 : _g.rectW;
-        if (measuredW && measuredW > 0) {
+        const measuredH = (_i = (_h = ir.computed) == null ? void 0 : _h.rectH) != null ? _i : 0;
+        const lh = (_m = (_l = (_j = ir.computed) == null ? void 0 : _j.lineHeight) != null ? _l : (_k = ir.computed) == null ? void 0 : _k.fontSize) != null ? _m : 16;
+        const isMultiline = measuredH > lh * 1.5;
+        if (measuredW && measuredW > 0 && isMultiline) {
           try {
             tn.textAutoResize = "HEIGHT";
           } catch (e) {
@@ -1642,17 +1654,29 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       });
       await applyFrameStyle(frame, styleForFrame);
       frame.layoutMode = "NONE";
-      const overflow = (_h = ir.computed) == null ? void 0 : _h.overflow;
+      const shotUrl = ir.attrs.__screenshot;
+      if (shotUrl && parent === null) {
+        try {
+          const bytes = await fetchImageBytes(shotUrl);
+          if (bytes) {
+            const image = figma.createImage(bytes);
+            frame.fills = [{ type: "IMAGE", scaleMode: "FILL", imageHash: image.hash }];
+          }
+        } catch (e) {
+          console.warn("screen root screenshot fill failed:", e);
+        }
+      }
+      const overflow = (_n = ir.computed) == null ? void 0 : _n.overflow;
       frame.clipsContent = !!overflow && overflow !== "visible";
       if (isTextOnlyChildren(ir)) {
         const inner = hasInlineElementChild(ir) ? await buildRichText(ir) : await buildText(ir);
         if (inner) {
-          const padL = (_j = (_i = ir.computed) == null ? void 0 : _i.paddingLeft) != null ? _j : 0;
-          const padR = (_l = (_k = ir.computed) == null ? void 0 : _k.paddingRight) != null ? _l : 0;
-          const padT = (_n = (_m = ir.computed) == null ? void 0 : _m.paddingTop) != null ? _n : 0;
-          const padB = (_p = (_o = ir.computed) == null ? void 0 : _o.paddingBottom) != null ? _p : 0;
-          const w = (_r = (_q = ir.computed) == null ? void 0 : _q.rectW) != null ? _r : frame.width;
-          const h = (_t = (_s = ir.computed) == null ? void 0 : _s.rectH) != null ? _t : frame.height;
+          const padL = (_p = (_o = ir.computed) == null ? void 0 : _o.paddingLeft) != null ? _p : 0;
+          const padR = (_r = (_q = ir.computed) == null ? void 0 : _q.paddingRight) != null ? _r : 0;
+          const padT = (_t = (_s = ir.computed) == null ? void 0 : _s.paddingTop) != null ? _t : 0;
+          const padB = (_v = (_u = ir.computed) == null ? void 0 : _u.paddingBottom) != null ? _v : 0;
+          const w = (_x = (_w = ir.computed) == null ? void 0 : _w.rectW) != null ? _x : frame.width;
+          const h = (_z = (_y = ir.computed) == null ? void 0 : _y.rectH) != null ? _z : frame.height;
           const ALIGN_MAP = {
             "flex-start": "MIN",
             "start": "MIN",
@@ -1663,10 +1687,10 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
             "right": "MAX",
             "space-between": "SPACE_BETWEEN"
           };
-          const justify = (_v = (_u = ir.computed) == null ? void 0 : _u.justifyContent) != null ? _v : "flex-start";
-          const display = (_w = ir.computed) == null ? void 0 : _w.display;
-          const va = (_x = ir.computed) == null ? void 0 : _x.verticalAlign;
-          let align = (_z = (_y = ir.computed) == null ? void 0 : _y.alignItems) != null ? _z : "stretch";
+          const justify = (_B = (_A = ir.computed) == null ? void 0 : _A.justifyContent) != null ? _B : "flex-start";
+          const display = (_C = ir.computed) == null ? void 0 : _C.display;
+          const va = (_D = ir.computed) == null ? void 0 : _D.verticalAlign;
+          let align = (_F = (_E = ir.computed) == null ? void 0 : _E.alignItems) != null ? _F : "stretch";
           if ((display === "table-cell" || display === "inline-table" || display === "table") && va) {
             if (va === "middle") align = "center";
             else if (va === "top") align = "flex-start";
@@ -1674,16 +1698,31 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
           } else if ((display === "table-cell" || display === "inline-table") && !va) {
             align = "center";
           }
-          const textAlign = (_A = ir.computed) == null ? void 0 : _A.textAlign;
+          const textAlign = (_G = ir.computed) == null ? void 0 : _G.textAlign;
           frame.layoutMode = "HORIZONTAL";
           frame.paddingLeft = padL;
           frame.paddingRight = padR;
           frame.paddingTop = padT;
           frame.paddingBottom = padB;
-          frame.primaryAxisAlignItems = (_B = ALIGN_MAP[justify]) != null ? _B : "MIN";
-          frame.counterAxisAlignItems = (_C = ALIGN_MAP[align]) != null ? _C : "CENTER";
+          const TEXT_ALIGN_TO_PRIMARY = {
+            left: "MIN",
+            center: "CENTER",
+            right: "MAX",
+            justify: "MIN"
+          };
+          const primaryFromTextAlign = textAlign ? TEXT_ALIGN_TO_PRIMARY[textAlign] : void 0;
+          frame.primaryAxisAlignItems = (_H = primaryFromTextAlign != null ? primaryFromTextAlign : ALIGN_MAP[justify]) != null ? _H : "MIN";
+          frame.counterAxisAlignItems = (_I = ALIGN_MAP[align]) != null ? _I : "CENTER";
           try {
             frame.resize(Math.max(1, w), Math.max(1, h));
+          } catch (e) {
+          }
+          try {
+            frame.primaryAxisSizingMode = "FIXED";
+          } catch (e) {
+          }
+          try {
+            frame.counterAxisSizingMode = "FIXED";
           } catch (e) {
           }
           try {
@@ -1691,9 +1730,44 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
             frame.layoutSizingVertical = "FIXED";
           } catch (e) {
           }
-          try {
-            inner.textAutoResize = "HEIGHT";
-          } catch (e) {
+          const innerLh = (_M = (_L = (_J = ir.computed) == null ? void 0 : _J.lineHeight) != null ? _L : (_K = ir.computed) == null ? void 0 : _K.fontSize) != null ? _M : 16;
+          const contentH = ((_O = (_N = ir.computed) == null ? void 0 : _N.rectH) != null ? _O : h) - padT - padB;
+          const isMultilineInner = contentH > innerLh * 1.5;
+          frame.appendChild(inner);
+          if (isMultilineInner) {
+            try {
+              inner.textAutoResize = "HEIGHT";
+            } catch (e) {
+            }
+            try {
+              inner.layoutGrow = 1;
+            } catch (e) {
+            }
+            try {
+              inner.layoutSizingHorizontal = "FILL";
+            } catch (e) {
+            }
+            try {
+              inner.layoutSizingVertical = "HUG";
+            } catch (e) {
+            }
+          } else {
+            try {
+              inner.textAutoResize = "WIDTH_AND_HEIGHT";
+            } catch (e) {
+            }
+            try {
+              inner.layoutGrow = 0;
+            } catch (e) {
+            }
+            try {
+              inner.layoutSizingHorizontal = "HUG";
+            } catch (e) {
+            }
+            try {
+              inner.layoutSizingVertical = "HUG";
+            } catch (e) {
+            }
           }
           if (textAlign && ["left", "center", "right", "justify"].includes(textAlign)) {
             try {
@@ -1701,7 +1775,6 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
             } catch (e) {
             }
           }
-          frame.appendChild(inner);
         }
       } else {
         const orderedChildren = ir.children.map((c, i) => ({ c, i })).sort((a, b) => zIndexOf(a.c, 0) - zIndexOf(b.c, 0) || a.i - b.i);

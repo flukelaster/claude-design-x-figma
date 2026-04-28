@@ -634,12 +634,73 @@ export const SCRAPE_FN = `
     return out;
   }
 
-  // Detect "screens" — direct children of #root, or fallback to body roots
-  const root = document.getElementById('root') || document.body;
+  // Detect "screens" — direct children of #root, or fallback to body roots.
+  // If #root exists but is empty (mount failed, asset blocked), prefer body
+  // so we still emit something rather than an empty screens array.
+  // Two layouts in the wild:
+  //   1. Multi-screen prototype: each child wraps a full viewport-sized screen,
+  //      siblings overlap at rectY≈0 (toggled via display:none or stacked at the
+  //      same origin). Emit one screen per child.
+  //   2. Single landing page: top-level children stack vertically (nav, main,
+  //      footer). Each starts where the previous ended. Emit ONE screen
+  //      wrapping the whole root, otherwise children render as side-by-side
+  //      frames with broken offsets.
+  const rootEl = document.getElementById('root');
+  const root = (rootEl && rootEl.children.length > 0) ? rootEl : document.body;
+  const viewportW = window.innerWidth;
+  const childRects = [];
+  for (const child of root.children) childRects.push(child.getBoundingClientRect());
+  const isMultiScreen = childRects.length > 1 && childRects.every(function (r) {
+    return Math.abs(r.y) < 50 && r.width >= viewportW * 0.8;
+  });
   const screens = [];
-  for (const child of root.children) {
-    const ir = walk(child);
-    if (ir) screens.push(ir);
+  if (isMultiScreen || childRects.length <= 1) {
+    for (const child of root.children) {
+      const ir = walk(child);
+      if (ir) screens.push(ir);
+    }
+  } else {
+    const ir = walk(root);
+    if (ir) {
+      // Page background often lives on <html> or <body>, not on #root. The
+      // browser paints html bg on the canvas, so #root's own bg is transparent.
+      // Pull the first non-empty bg from root → body → html so the screen frame
+      // carries the real page background + gradient.
+      const bodyCs = window.getComputedStyle(document.body);
+      const htmlCs = window.getComputedStyle(document.documentElement);
+      const isOpaque = function (c) { return c && c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent'; };
+      const isImg = function (s) { return s && s !== 'none'; };
+      ir.computed = ir.computed || {};
+      if (!isOpaque(ir.computed.backgroundColor)) {
+        if (isOpaque(bodyCs.backgroundColor)) ir.computed.backgroundColor = bodyCs.backgroundColor;
+        else if (isOpaque(htmlCs.backgroundColor)) ir.computed.backgroundColor = htmlCs.backgroundColor;
+      }
+      if (!isImg(ir.computed.backgroundImage)) {
+        if (isImg(bodyCs.backgroundImage)) {
+          ir.computed.backgroundImage = bodyCs.backgroundImage;
+          if (bodyCs.backgroundSize) ir.computed.backgroundSize = bodyCs.backgroundSize;
+          if (bodyCs.backgroundPosition) ir.computed.backgroundPosition = bodyCs.backgroundPosition;
+          if (bodyCs.backgroundRepeat) ir.computed.backgroundRepeat = bodyCs.backgroundRepeat;
+        } else if (isImg(htmlCs.backgroundImage)) {
+          ir.computed.backgroundImage = htmlCs.backgroundImage;
+          if (htmlCs.backgroundSize) ir.computed.backgroundSize = htmlCs.backgroundSize;
+          if (htmlCs.backgroundPosition) ir.computed.backgroundPosition = htmlCs.backgroundPosition;
+          if (htmlCs.backgroundRepeat) ir.computed.backgroundRepeat = htmlCs.backgroundRepeat;
+        }
+      }
+      // Match the screen frame to the actual page extent so children laid out
+      // by viewport coordinates stay aligned. Root's rect can be smaller than
+      // body when min-height lives on body/html.
+      const bodyRect = document.body.getBoundingClientRect();
+      const htmlRect = document.documentElement.getBoundingClientRect();
+      const fullW = Math.max(ir.computed.rectW || 0, bodyRect.width, htmlRect.width, window.innerWidth);
+      const fullH = Math.max(ir.computed.rectH || 0, bodyRect.height, htmlRect.height);
+      ir.computed.rectW = fullW;
+      ir.computed.rectH = fullH;
+      ir.computed.width = fullW;
+      ir.computed.height = fullH;
+      screens.push(ir);
+    }
   }
 
   // ── JS token extraction ────────────────────────────────────────────────

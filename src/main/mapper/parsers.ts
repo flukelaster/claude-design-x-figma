@@ -311,7 +311,9 @@ function parseGradientStops(stopParts: string[], unit: 'percent' | 'deg'): Gradi
 }
 
 export function parseLinearGradient(value: string): GradientLinear | null {
-  const m = value.match(/^linear-gradient\((.+)\)$/s);
+  // Figma has no native repeating gradient. Parse the colour stops anyway so
+  // grid/lined overlays at least carry colour instead of vanishing entirely.
+  const m = value.match(/^(?:repeating-)?linear-gradient\((.+)\)$/s);
   if (!m) return null;
   const parts = splitTopLevelComma(m[1]);
 
@@ -349,7 +351,7 @@ export function parseLinearGradient(value: string): GradientLinear | null {
 }
 
 export function parseRadialGradient(value: string): GradientRadial | null {
-  const m = value.match(/^radial-gradient\((.+)\)$/s);
+  const m = value.match(/^(?:repeating-)?radial-gradient\((.+)\)$/s);
   if (!m) return null;
   const parts = splitTopLevelComma(m[1]);
 
@@ -410,8 +412,8 @@ export function parseConicGradient(value: string): GradientAngular | null {
 }
 
 export function parseGradient(value: string): AnyGradient | null {
-  if (value.startsWith('linear-gradient')) return parseLinearGradient(value);
-  if (value.startsWith('radial-gradient')) return parseRadialGradient(value);
+  if (value.startsWith('linear-gradient') || value.startsWith('repeating-linear-gradient')) return parseLinearGradient(value);
+  if (value.startsWith('radial-gradient') || value.startsWith('repeating-radial-gradient')) return parseRadialGradient(value);
   if (value.startsWith('conic-gradient')) return parseConicGradient(value);
   return null;
 }
