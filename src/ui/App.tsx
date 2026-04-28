@@ -338,6 +338,7 @@ export function App() {
   const [height, setHeight] = useState(900);
   const [waitMs, setWaitMs] = useState(500);
   const [clickText, setClickText] = useState('');
+  const [bypassCSP, setBypassCSP] = useState(false);
   const [scrapeState, setScrapeState] = useState<ScrapeState>('idle');
   const [scraped, setScraped] = useState<Scraped | null>(null);
   const [scrapeInfo, setScrapeInfo] = useState('');
@@ -424,7 +425,7 @@ export function App() {
       const res = await fetchWithTimeout(`${base}/scrape`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim(), viewport: { width, height }, waitMs, clickText: clickText.trim() || undefined }),
+        body: JSON.stringify({ url: url.trim(), viewport: { width, height }, waitMs, clickText: clickText.trim() || undefined, bypassCSP }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
@@ -573,6 +574,22 @@ export function App() {
                   onChange={e => setClickText(e.target.value)}
                   style={inputStyle}
                 />
+              </div>
+              <div style={{ ...fieldGroupStyle, gridColumn: '1 / -1', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <input
+                  id="bypass-csp"
+                  type="checkbox"
+                  checked={bypassCSP}
+                  onChange={e => setBypassCSP(e.target.checked)}
+                  style={{ margin: 0 }}
+                />
+                <label
+                  htmlFor="bypass-csp"
+                  title="Disable target-site CSP. Needed for Claude Design previews (inline Babel) but should stay off for arbitrary URLs."
+                  style={{ ...labelStyle, margin: 0, cursor: 'pointer' }}
+                >
+                  Bypass CSP (Claude Design previews)
+                </label>
               </div>
             </div>
           </details>

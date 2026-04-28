@@ -859,6 +859,13 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     "scale-down": "FIT"
   };
   const FONT_FAMILY_DEFAULT = "Inter";
+  const MULTILINE_LH_RATIO = 1.5;
+  const TEXT_ALIGN_TO_PRIMARY = {
+    left: "MIN",
+    center: "CENTER",
+    right: "MAX",
+    justify: "MIN"
+  };
   function effectiveStyle(ir) {
     return ir.computed ? computedToResolved(ir.computed, ir.style) : ir.style;
   }
@@ -1346,17 +1353,23 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       else if (typeof h === "number") node.layoutSizingVertical = "FIXED";
     }
   }
+  function shouldSkipImageLayers(s) {
+    const bgImg = s.__bgImage;
+    if (!bgImg) return false;
+    if (/^url\(/.test(bgImg)) return false;
+    if (/repeating-(linear|radial)-gradient/.test(bgImg)) return true;
+    const sz = s.__bgSize;
+    const rep = s.__bgRepeat;
+    const tilePxSize = !!sz && /^\d+(?:\.\d+)?px(?:\s+\d+(?:\.\d+)?px)?$/.test(sz);
+    const tilingRepeat = !!rep && (rep === "repeat" || rep === "repeat-x" || rep === "repeat-y");
+    return tilePxSize && tilingRepeat;
+  }
   async function buildBgFills(s) {
     const layers = [];
     const bgImg = s.__bgImage;
-    const isUnrenderableBg = !!bgImg && (/repeating-(linear|radial)-gradient/.test(bgImg) || (() => {
-      const sz = s.__bgSize;
-      return !!sz && /^\d+(?:\.\d+)?px(?:\s+\d+(?:\.\d+)?px)?$/.test(sz);
-    })());
-    const bgIsRasterized = !!bgImg && /^url\(/.test(bgImg);
-    const skipDueToTiledGradient = isUnrenderableBg && !bgIsRasterized;
-    if (s.bg && !skipDueToTiledGradient) layers.push(boundColorPaint(s.bg));
-    if (bgImg && !skipDueToTiledGradient) {
+    const skipImageLayers = shouldSkipImageLayers(s);
+    if (s.bg) layers.push(boundColorPaint(s.bg));
+    if (bgImg && !skipImageLayers) {
       const cssLayers = splitTopLevelComma(bgImg);
       const imgLayers = [];
       for (const layer of cssLayers) {
@@ -1624,7 +1637,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         const measuredW = (_g = ir.computed) == null ? void 0 : _g.rectW;
         const measuredH = (_i = (_h = ir.computed) == null ? void 0 : _h.rectH) != null ? _i : 0;
         const lh = (_m = (_l = (_j = ir.computed) == null ? void 0 : _j.lineHeight) != null ? _l : (_k = ir.computed) == null ? void 0 : _k.fontSize) != null ? _m : 16;
-        const isMultiline = measuredH > lh * 1.5;
+        const isMultiline = measuredH > lh * MULTILINE_LH_RATIO;
         if (measuredW && measuredW > 0 && isMultiline) {
           try {
             tn.textAutoResize = "HEIGHT";
@@ -1704,12 +1717,6 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
           frame.paddingRight = padR;
           frame.paddingTop = padT;
           frame.paddingBottom = padB;
-          const TEXT_ALIGN_TO_PRIMARY = {
-            left: "MIN",
-            center: "CENTER",
-            right: "MAX",
-            justify: "MIN"
-          };
           const primaryFromTextAlign = textAlign ? TEXT_ALIGN_TO_PRIMARY[textAlign] : void 0;
           frame.primaryAxisAlignItems = (_H = primaryFromTextAlign != null ? primaryFromTextAlign : ALIGN_MAP[justify]) != null ? _H : "MIN";
           frame.counterAxisAlignItems = (_I = ALIGN_MAP[align]) != null ? _I : "CENTER";
@@ -1732,7 +1739,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
           }
           const innerLh = (_M = (_L = (_J = ir.computed) == null ? void 0 : _J.lineHeight) != null ? _L : (_K = ir.computed) == null ? void 0 : _K.fontSize) != null ? _M : 16;
           const contentH = ((_O = (_N = ir.computed) == null ? void 0 : _N.rectH) != null ? _O : h) - padT - padB;
-          const isMultilineInner = contentH > innerLh * 1.5;
+          const isMultilineInner = contentH > innerLh * MULTILINE_LH_RATIO;
           frame.appendChild(inner);
           if (isMultilineInner) {
             try {

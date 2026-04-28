@@ -39,6 +39,19 @@ const OBJECT_FIT_MAP: Record<string, 'FILL' | 'FIT' | 'CROP' | 'TILE'> = {
 
 const FONT_FAMILY_DEFAULT = 'Inter';
 
+// Heuristic: a text rect taller than (lineHeight × this) wraps to ≥2 lines.
+// Used to pick HUG (single-line, editable) vs FILL (multi-line, preserve wrap).
+const MULTILINE_LH_RATIO = 1.5;
+
+// CSS text-align → Figma primaryAxisAlignItems for HORIZONTAL auto-layout.
+// Hoisted so the text-container path doesn't reallocate the map per call.
+const TEXT_ALIGN_TO_PRIMARY: Record<string, 'MIN' | 'CENTER' | 'MAX' | 'SPACE_BETWEEN'> = {
+  left: 'MIN',
+  center: 'CENTER',
+  right: 'MAX',
+  justify: 'MIN',
+};
+
 function effectiveStyle(ir: IRNode): ResolvedStyle {
   return ir.computed ? computedToResolved(ir.computed, ir.style) : ir.style;
 }
@@ -572,6 +585,29 @@ function applySize(node: FrameNode | RectangleNode, s: ResolvedStyle) {
   }
 }
 
+// Pure decision: should we drop the CSS bg-image layers when emitting Figma
+// fills for this element? Returns true only when the bg is a true tiled
+// gradient Figma can't reproduce. The screen-root screenshot fallback shows
+// through any element whose image fills we drop.
+//
+// Rules:
+//   - Already rasterized (url(data:…)) → keep, the rasterizer handled it.
+//   - repeating-(linear|radial)-gradient → drop (Figma can't tile gradients).
+//   - Plain gradient + pixel bg-size + repeating bg-repeat → drop (CSS grid
+//     pattern via tiled fixed-size gradient). Pixel bg-size alone isn't
+//     enough: a hero linear-gradient sized 1440×600 is fixed, not a tile.
+export function shouldSkipImageLayers(s: ResolvedStyle): boolean {
+  const bgImg = (s as any).__bgImage as string | undefined;
+  if (!bgImg) return false;
+  if (/^url\(/.test(bgImg)) return false;
+  if (/repeating-(linear|radial)-gradient/.test(bgImg)) return true;
+  const sz = (s as any).__bgSize as string | undefined;
+  const rep = (s as any).__bgRepeat as string | undefined;
+  const tilePxSize = !!sz && /^\d+(?:\.\d+)?px(?:\s+\d+(?:\.\d+)?px)?$/.test(sz);
+  const tilingRepeat = !!rep && (rep === 'repeat' || rep === 'repeat-x' || rep === 'repeat-y');
+  return tilePxSize && tilingRepeat;
+}
+
 async function buildBgFills(s: ResolvedStyle): Promise<Paint[]> {
   // Figma fills paint last-on-top; CSS background layers paint first-on-top.
   // Build in CSS order, reverse before returning. bg color always sits beneath
@@ -579,23 +615,12 @@ async function buildBgFills(s: ResolvedStyle): Promise<Paint[]> {
   // the reversed list.
   const layers: Paint[] = [];
   const bgImg = (s as any).__bgImage as string | undefined;
-  // Skip fills entirely for decorative-only divs whose bg is a tiled / repeating
-  // gradient (grid patterns, stripes). Figma can't tile gradient paints; the
-  // screen root's screenshot fill will show through instead.
-  const isUnrenderableBg = !!bgImg && (
-    /repeating-(linear|radial)-gradient/.test(bgImg)
-    || (() => {
-      const sz = (s as any).__bgSize as string | undefined;
-      return !!sz && /^\d+(?:\.\d+)?px(?:\s+\d+(?:\.\d+)?px)?$/.test(sz);
-    })()
-  );
-  // The tile rasterizer (in render.ts) rewrites those bg-images to data: URLs
-  // BEFORE scrape. If bg-image is now url(data:…), it's already rasterized and
-  // should render as a normal image fill — not skipped.
-  const bgIsRasterized = !!bgImg && /^url\(/.test(bgImg);
-  const skipDueToTiledGradient = isUnrenderableBg && !bgIsRasterized;
-  if (s.bg && !skipDueToTiledGradient) layers.push(boundColorPaint(s.bg));
-  if (bgImg && !skipDueToTiledGradient) {
+  const skipImageLayers = shouldSkipImageLayers(s);
+  // bg color is ALWAYS pushed — never depend on the image-layer decision.
+  // CSS spec: bg color paints under all bg images. Dropping it would make
+  // inner containers transparent when their gradient was un-renderable.
+  if (s.bg) layers.push(boundColorPaint(s.bg));
+  if (bgImg && !skipImageLayers) {
     const cssLayers = splitCommas(bgImg);
     // CSS first layer = top. Walk in reverse so caller-side fills.reverse()
     // puts the first CSS layer at the end (top) of the Figma fills array.
@@ -887,7 +912,7 @@ export async function buildNode(ir: IRNode, parent: IRNode | null = null): Promi
       const measuredW = ir.computed?.rectW;
       const measuredH = ir.computed?.rectH ?? 0;
       const lh = ir.computed?.lineHeight ?? ir.computed?.fontSize ?? 16;
-      const isMultiline = measuredH > lh * 1.5;
+      const isMultiline = measuredH > lh * MULTILINE_LH_RATIO;
       if (measuredW && measuredW > 0 && isMultiline) {
         // Wrapped text → fixed width, height hugs. Width preserves browser wrap.
         try { tn.textAutoResize = 'HEIGHT'; } catch {}
@@ -969,10 +994,8 @@ export async function buildNode(ir: IRNode, parent: IRNode | null = null): Promi
         frame.paddingBottom = padB;
         // CSS text-align takes precedence over flex justify when the inner text
         // is hugged — otherwise centered text in a wide frame would left-align
-        // (default justify-content). Map text-align → primaryAxisAlignItems.
-        const TEXT_ALIGN_TO_PRIMARY: Record<string, 'MIN'|'CENTER'|'MAX'|'SPACE_BETWEEN'> = {
-          left: 'MIN', center: 'CENTER', right: 'MAX', justify: 'MIN',
-        };
+        // (default justify-content). Map text-align → primaryAxisAlignItems
+        // via the module-scoped TEXT_ALIGN_TO_PRIMARY table.
         const primaryFromTextAlign = textAlign ? TEXT_ALIGN_TO_PRIMARY[textAlign] : undefined;
         frame.primaryAxisAlignItems = primaryFromTextAlign ?? ALIGN_MAP[justify] ?? 'MIN';
         frame.counterAxisAlignItems = (ALIGN_MAP[align] as any) ?? 'CENTER';
@@ -997,7 +1020,7 @@ export async function buildNode(ir: IRNode, parent: IRNode | null = null): Promi
         //     Filling a single-line text in a chip wraps "Attach" to "Attac\nh".
         const innerLh = ir.computed?.lineHeight ?? ir.computed?.fontSize ?? 16;
         const contentH = (ir.computed?.rectH ?? h) - padT - padB;
-        const isMultilineInner = contentH > innerLh * 1.5;
+        const isMultilineInner = contentH > innerLh * MULTILINE_LH_RATIO;
         frame.appendChild(inner);
         if (isMultilineInner) {
           // textAutoResize must be HEIGHT (fixed width, hug height) BEFORE

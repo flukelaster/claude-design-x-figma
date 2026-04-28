@@ -14,6 +14,7 @@ export type RenderOptions = {
   waitMs?: number;          // extra settle time after load
   selector?: string;        // wait until this selector is present
   clickText?: string;       // SPA navigation: click a link/button matching this label before scrape
+  bypassCSP?: boolean;      // disable target-site CSP enforcement; needed for previews that inline Babel
 };
 
 export async function renderAndScrape(opts: RenderOptions): Promise<ScrapeResult> {
@@ -22,11 +23,10 @@ export async function renderAndScrape(opts: RenderOptions): Promise<ScrapeResult
     const context = await browser.newContext({
       viewport: opts.viewport ?? { width: 1440, height: 900 },
       deviceScaleFactor: 2,
-      // Claude Design preview sets a strict CSP (require-trusted-types-for
-      // 'script', script-src nonce). React's Babel inline transform gets
-      // blocked, #root never populates, waitForFunction times out. Bypass CSP
-      // so the in-browser Babel + React mount can run.
-      bypassCSP: true,
+      // OPT-IN. Some previews (Claude Design) set strict CSP (require-trusted-
+      // types-for 'script', script-src nonce) that blocks React's inline Babel.
+      // Enable per request so we don't relax CSP for unrelated scrape targets.
+      bypassCSP: opts.bypassCSP === true,
     });
     const page: Page = await context.newPage();
 

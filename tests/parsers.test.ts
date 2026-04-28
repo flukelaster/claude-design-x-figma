@@ -113,6 +113,14 @@ describe('parseLinearGradient', () => {
   it('returns null on invalid', () => {
     expect(parseLinearGradient('not-a-gradient')).toBeNull();
   });
+  it('accepts repeating-linear-gradient prefix', () => {
+    const g = parseLinearGradient(
+      'repeating-linear-gradient(45deg, #141416 0px, #141416 8px, #1c1c1f 8px, #1c1c1f 16px)',
+    );
+    expect(g).not.toBeNull();
+    expect(g!.type).toBe('GRADIENT_LINEAR');
+    expect(g!.gradientStops.length).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe('parseRadialGradient', () => {
@@ -125,6 +133,13 @@ describe('parseRadialGradient', () => {
     const g = parseRadialGradient('radial-gradient(at 25% 75%, #ffffff, #000000)')!;
     expect(g.gradientTransform[0][2]).toBeCloseTo(0.25);
     expect(g.gradientTransform[1][2]).toBeCloseTo(0.75);
+  });
+  it('accepts repeating-radial-gradient prefix', () => {
+    const g = parseRadialGradient(
+      'repeating-radial-gradient(circle at center, rgba(255,255,255,.05) 0px, rgba(255,255,255,.05) 12px, transparent 12px, transparent 24px)',
+    );
+    expect(g).not.toBeNull();
+    expect(g!.type).toBe('GRADIENT_RADIAL');
   });
 });
 
@@ -147,6 +162,12 @@ describe('parseGradient dispatch', () => {
     expect(parseGradient('radial-gradient(#ff0000, #0000ff)')?.type).toBe('GRADIENT_RADIAL');
     expect(parseGradient('conic-gradient(#ff0000, #0000ff)')?.type).toBe('GRADIENT_ANGULAR');
     expect(parseGradient('url(foo.png)')).toBeNull();
+  });
+  it('routes repeating-* gradient prefixes', () => {
+    expect(parseGradient('repeating-linear-gradient(45deg, #fff 0px, #fff 4px, #000 4px, #000 8px)')?.type)
+      .toBe('GRADIENT_LINEAR');
+    expect(parseGradient('repeating-radial-gradient(circle, #fff 0px, #fff 4px, #000 4px, #000 8px)')?.type)
+      .toBe('GRADIENT_RADIAL');
   });
 });
 
