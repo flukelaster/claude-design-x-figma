@@ -66,10 +66,12 @@ const server = createServer(async (req, res) => {
         ? { width: Number(body.viewport.width) || 1440, height: Number(body.viewport.height) || 900 }
         : { width: 1440, height: 900 };
       const waitMs = Number(body.waitMs) || 500;
+      const clickText = typeof body.clickText === 'string' && body.clickText.trim() ? body.clickText.trim() : undefined;
+      const bypassCSP = body.bypassCSP === true;
 
       const t0 = Date.now();
-      console.log(`→ scrape ${targetUrl} (${viewport.width}x${viewport.height}, wait=${waitMs}ms)`);
-      const result = await renderAndScrape({ url: targetUrl, viewport, waitMs });
+      console.log(`→ scrape ${targetUrl} (${viewport.width}x${viewport.height}, wait=${waitMs}ms${clickText ? `, click="${clickText}"` : ''}${bypassCSP ? ', bypassCSP' : ''})`);
+      const result = await renderAndScrape({ url: targetUrl, viewport, waitMs, clickText, bypassCSP });
       const ms = Date.now() - t0;
       console.log(`✓ ${result.screens.length} screen(s) in ${ms}ms`);
       return json(res, 200, result);
